@@ -12,11 +12,11 @@ import { useState } from "react";
 import {
   TransactionBuilder,
   Contract,
-  SorobanRpc,
   Account,
   BASE_FEE,
   xdr,
 } from "@stellar/stellar-sdk";
+import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import { rpcClient, networkPassphraseConfig } from "@/lib/stellar/client";
 import { CONTRACT_ID, stellarExplorerTx } from "@/lib/constants";
 import { useWallet } from "./useWallet";
