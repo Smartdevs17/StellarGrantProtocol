@@ -19,8 +19,6 @@ import { useGrant } from "@/hooks/useGrant";
 import { WalletConnect } from "@/components/wallet/WalletConnect";
 
 export type WalletGuardRole = "any" | "reviewer" | "contributor" | "owner";
-import { useWallet } from "@/hooks/useWallet";
-import { WalletConnect } from "./WalletConnect";
 
 interface WalletGuardProps {
   children: React.ReactNode;
@@ -75,13 +73,6 @@ function ConnectCard() {
         Connect your wallet to access this section.
       </p>
       <div className="mt-6 flex justify-center">
-export function WalletGuard({ children, requiredRole: _requiredRole = "any" }: WalletGuardProps) {
-  const { isConnected } = useWallet();
-
-  if (!isConnected) {
-    return (
-      <div className="wallet-guard-prompt">
-        <p className="wallet-guard-message">Please connect your wallet to continue</p>
         <WalletConnect />
       </div>
     </div>
