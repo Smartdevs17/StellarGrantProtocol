@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
 import { FeeCollection } from "../entities/FeeCollection";
 import { Grant } from "../entities/Grant";
-import { DataSource } from "typeorm";
+import { DataSource, In } from "typeorm";
 import { authMiddleware } from "../middlewares/auth-middleware";
 import { AuthenticatedRequest } from "../types/auth";
 
@@ -31,7 +31,7 @@ export function buildMyDonationsRouter(dataSource: DataSource) {
     // Optionally, join grant info
     const grantIds = [...new Set(donations.map((d: any) => d.grantId))];
     const grantRepo = dataSource.getRepository(Grant);
-    const grants = await grantRepo.find({ where: { id: grantIds.length > 0 ? { In: grantIds } : undefined } as any });
+    const grants = await grantRepo.find({ where: { id: grantIds.length > 0 ? In(grantIds) : undefined } });
     const grantMap = Object.fromEntries(grants.map((g: any) => [g.id, g]));
 
     res.json({

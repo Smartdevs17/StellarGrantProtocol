@@ -1,4 +1,4 @@
-import { SorobanContractClient, SorobanGrant } from "./types";
+import { SorobanContractClient, SorobanGrant, SorobanContractEvent } from "./types";
 
 const mockGrants: SorobanGrant[] = [
   {
@@ -7,6 +7,7 @@ const mockGrants: SorobanGrant[] = [
     status: "active",
     recipient: "GBRPYHIL2C2WBO36G6UIGR2PA4M3TQ7VOY3RTMAL4LRRA67ZOHQ65SZD",
     totalAmount: "250000000",
+    owner: "GOWNEREXAMPLEADDRESS0000000000000000000000000000000000",
   },
   {
     id: 2,
@@ -14,6 +15,26 @@ const mockGrants: SorobanGrant[] = [
     status: "review",
     recipient: "GCBQ6JQXQTVV7T7OUVPR4Q6PGACCUAKS6S2YDG3YQYQYRR2NJB5A6NAA",
     totalAmount: "100000000",
+    owner: "GOWNEREXAMPLEADDRESS1111111111111111111111111111111111",
+  },
+];
+
+const mockEvents: SorobanContractEvent[] = [
+  {
+    id: "evt-1",
+    grantId: 1,
+    type: "grant_created",
+    actorAddress: "GDUMMYACTORADDRESS0000000000000000000000000000000000",
+    ledger: 900,
+    data: { details: "Grant created on chain" },
+  },
+  {
+    id: "evt-2",
+    grantId: 2,
+    type: "grant_funded",
+    actorAddress: "GDUMMYACTORADDRESS1111111111111111111111111111111111",
+    ledger: 901,
+    data: { amount: "1000" },
   },
 ];
 
@@ -24,5 +45,13 @@ export class MockSorobanContractClient implements SorobanContractClient {
 
   async fetchGrantById(id: number): Promise<SorobanGrant | null> {
     return mockGrants.find((grant) => grant.id === id) ?? null;
+  }
+
+  async getLatestLedger(): Promise<number> {
+    return 1000;
+  }
+
+  async fetchEvents(fromLedger: number, toLedger: number): Promise<SorobanContractEvent[]> {
+    return mockEvents.filter((event) => event.ledger >= fromLedger && event.ledger <= toLedger);
   }
 }

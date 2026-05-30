@@ -16,8 +16,8 @@ export class Grant {
   @Column({ type: "varchar", length: 30 })
   status!: string;
 
-  @Column({ type: "varchar", length: 120 })
-  owner!: string;
+  @Column({ type: "varchar", length: 120, nullable: true })
+  owner?: string | null;
 
   @Column({ type: "varchar", length: 120 })
   recipient!: string;
@@ -28,12 +28,7 @@ export class Grant {
   @Column({ type: "text", nullable: true })
   tags?: string;
 
-  @ManyToMany(() => GrantReviewer)
-  @JoinTable({
-    name: "grant_reviewers_junction",
-    joinColumn: { name: "grantId", referencedColumnName: "id" },
-    inverseJoinColumn: { name: "reviewerId", referencedColumnName: "id" },
-  })
+  @OneToMany(() => GrantReviewer, (reviewer) => reviewer.grant)
   reviewers?: GrantReviewer[];
 
   @UpdateDateColumn()

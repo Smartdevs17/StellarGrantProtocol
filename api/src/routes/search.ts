@@ -39,6 +39,7 @@ export const buildSearchRouter = (dataSource: DataSource) => {
         dataSource.getRepository(Contributor).find({
           where: [
             { address: Like(searchPattern) },
+            { email: Like(searchPattern) },
           ],
           take: 50,
         }),

@@ -18,12 +18,28 @@ import { buildMyDonationsRouter } from "./routes/my-donations";
 import { buildCommunitiesRouter } from "./routes/communities";
 import { buildNotificationsRouter } from "./routes/notifications";
 import { buildAdminRouter } from "./routes/admin";
+import { buildAdminMiddleware } from "./middlewares/admin-middleware";
 import { GrantSyncService } from "./services/grant-sync-service";
 import { SignatureService } from "./services/signature-service";
 import { LeaderboardService } from "./services/leaderboard-service";
 import { ResponseCacheService } from "./services/response-cache";
 import { RbacService } from "./services/rbac-service";
+import { metricsService } from "./services/metrics-service";
+import { env } from "./config/env";
+import { ReconciliationService } from "./services/reconciliation-service";
 import { SorobanContractClient } from "./soroban/types";
+import { AppError } from "./utils/errors";
+
+import { User } from "./entities/User";
+import { GrantReviewer } from "./entities/GrantReviewer";
+import { MilestoneApproval } from "./entities/MilestoneApproval";
+import { Milestone } from "./entities/Milestone";
+import { MilestoneComment } from "./entities/MilestoneComment";
+import { WebhookDispatcher } from "./services/webhook-dispatcher";
+import { buildUserRouter } from "./routes/users";
+import { buildGrantReviewerRouter } from "./routes/grant-reviewers";
+import { buildMilestoneApprovalNotifyRouter } from "./routes/milestone-approvals-notify";
+import { buildMilestoneCommentsRouter } from "./routes/milestone-comments";
 
 export const createApp = (dataSource: DataSource, sorobanClient: SorobanContractClient) => {
   const app = express();
@@ -38,25 +54,70 @@ export const createApp = (dataSource: DataSource, sorobanClient: SorobanContract
   const auditLogRepo = dataSource.getRepository(AuditLog);
   const communityRepo = dataSource.getRepository(Community);
   const activityRepo = dataSource.getRepository(Activity);
+  const userRepo = dataSource.getRepository(User);
+  const reviewerRepo = dataSource.getRepository(GrantReviewer);
+  const approvalRepo = dataSource.getRepository(MilestoneApproval);
+  const milestoneRepo = dataSource.getRepository(Milestone);
+  const commentsRepo = dataSource.getRepository(MilestoneComment);
 
   const grantSyncService = new GrantSyncService(dataSource, sorobanClient);
   const signatureService = new SignatureService();
   const leaderboardService = new LeaderboardService(dataSource);
   const responseCacheService = new ResponseCacheService();
   const rbacService = new RbacService(dataSource);
+  const adminMiddleware = buildAdminMiddleware(signatureService);
+  const reconciliationService = new ReconciliationService(dataSource, sorobanClient, grantSyncService);
+  const webhookDispatcher = new WebhookDispatcher(dataSource);
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
   app.use("/grants", buildGrantRouter(grantRepo, grantSyncService));
-  app.use("/milestone_proof", buildMilestoneProofRouter(proofRepo, signatureService));
+  app.use("/milestone_proof", buildMilestoneProofRouter(proofRepo, signatureService, grantRepo, userRepo));
   app.use("/search", buildSearchRouter(dataSource));
   app.use("/leaderboard", buildLeaderboardRouter(leaderboardService));
-  app.use("/profiles/me", buildProfilesRouter(contributorRepo, grantRepo));
+  app.use("/profiles", buildProfilesRouter(contributorRepo, grantRepo));
   app.use("/my-donations", buildMyDonationsRouter(dataSource));
-  app.use("/communities", buildCommunitiesRouter(communityRepo, grantRepo, activityRepo, rbacService));
+  app.use("/communities", buildCommunitiesRouter(communityRepo, grantRepo, activityRepo, rbacService, webhookDispatcher));
   app.use("/notifications", buildNotificationsRouter(contributorRepo));
-  app.use("/admin", buildAdminRouter(grantSyncService, contributorRepo, auditLogRepo, responseCacheService));
+  app.use("/users", buildUserRouter(userRepo));
+  app.use("/grant_reviewers", buildGrantReviewerRouter(reviewerRepo));
+  app.use("/milestone_approvals_notify", buildMilestoneApprovalNotifyRouter(approvalRepo, grantRepo, userRepo, webhookDispatcher));
+  app.use("/", buildMilestoneCommentsRouter(milestoneRepo, commentsRepo, reviewerRepo));
+  app.get("/metrics", async (req, res, next) => {
+    try {
+      if (env.metricsAllowedIps.length > 0 && !env.metricsAllowedIps.includes(req.ip)) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+
+      const auth = String(req.header("authorization") ?? "");
+      if (!auth.startsWith("Basic ")) {
+        res.set("WWW-Authenticate", "Basic realm=\"metrics\"");
+        res.status(401).json({ error: "Missing authorization" });
+        return;
+      }
+
+      const decoded = Buffer.from(auth.replace(/^Basic\s+/i, ""), "base64").toString("utf8");
+      const [user, pass] = decoded.split(":", 2);
+      if (user !== env.metricsBasicAuthUser || pass !== env.metricsBasicAuthPassword) {
+        res.set("WWW-Authenticate", "Basic realm=\"metrics\"");
+        res.status(401).json({ error: "Invalid credentials" });
+        return;
+      }
+
+      const metricsText = await metricsService.getMetricsText();
+      res.set("Content-Type", metricsService.getContentType());
+      res.send(metricsText);
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.use("/admin", adminMiddleware, buildAdminRouter(grantSyncService, contributorRepo, auditLogRepo, responseCacheService, reconciliationService));
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (err instanceof AppError) {
+      res.status(err.statusCode).json(err.toJSON());
+      return;
+    }
     const message = err instanceof Error ? err.message : "Internal server error";
     res.status(500).json({ error: message });
   });

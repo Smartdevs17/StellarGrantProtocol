@@ -15,13 +15,20 @@ export class GrantSyncService {
   async syncAllGrants(): Promise<void> {
     const grants = await this.sorobanClient.fetchGrants();
     for (const grant of grants) {
-      await this.grantRepo.save(grant);
+      await this.grantRepo.save(this.normalizeGrant(grant));
     }
   }
 
   async syncGrant(id: number): Promise<void> {
     const grant = await this.sorobanClient.fetchGrantById(id);
     if (!grant) return;
-    await this.grantRepo.save(grant);
+    await this.grantRepo.save(this.normalizeGrant(grant));
+  }
+
+  private normalizeGrant(grant: SorobanGrant): Partial<Grant> {
+    return {
+      ...grant,
+      owner: grant.owner ?? grant.recipient,
+    };
   }
 }

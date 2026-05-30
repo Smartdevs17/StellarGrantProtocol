@@ -3,6 +3,9 @@ import { Repository } from "typeorm";
 import { z } from "zod";
 import { MilestoneProof } from "../entities/MilestoneProof";
 import { SignatureService } from "../services/signature-service";
+import { getEmailTemplate, sendEmail } from "../services/email-service";
+import { Grant } from "../entities/Grant";
+import { User } from "../entities/User";
 
 const milestoneProofSchema = z.object({
   grantId: z.number().int().positive(),
@@ -17,6 +20,8 @@ const milestoneProofSchema = z.object({
 export const buildMilestoneProofRouter = (
   proofRepo: Repository<MilestoneProof>,
   signatureService: SignatureService,
+  grantRepo?: Repository<Grant>,
+  userRepo?: Repository<User>,
 ) => {
   const router = Router();
 
@@ -49,6 +54,41 @@ export const buildMilestoneProofRouter = (
         signature: payload.signature,
         nonce: payload.nonce,
       });
+
+      // Send emails if repos are available
+      if (grantRepo && userRepo) {
+        const grant = await grantRepo.findOne({
+          where: { id: payload.grantId },
+          relations: ["reviewers"],
+        });
+        if (grant) {
+          // Notify owner
+          const owner = await userRepo.findOne({ where: { stellarAddress: grant.recipient } });
+          if (owner && owner.email && owner.notifyMilestoneSubmitted !== false) {
+            const emailData = {
+              grantTitle: grant.title,
+              milestoneTitle: `#${payload.milestoneIdx}`,
+            };
+            const { subject, html } = getEmailTemplate("milestone_submitted", emailData);
+            await sendEmail({ to: owner.email, subject, html });
+          }
+
+          // Notify reviewers
+          if (grant.reviewers && grant.reviewers.length > 0) {
+            for (const reviewer of grant.reviewers) {
+              const user = await userRepo.findOne({ where: { stellarAddress: reviewer.reviewerStellarAddress } });
+              if (user && user.email && user.notifyMilestoneSubmitted !== false) {
+                const emailData = {
+                  grantTitle: grant.title,
+                  milestoneTitle: `#${payload.milestoneIdx}`,
+                };
+                const { subject, html } = getEmailTemplate("milestone_submitted", emailData);
+                await sendEmail({ to: user.email, subject, html });
+              }
+            }
+          }
+        }
+      }
 
       res.status(201).json({ data: proof });
     } catch (error: any) {

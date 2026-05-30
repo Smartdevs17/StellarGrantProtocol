@@ -3,14 +3,55 @@ import { Repository } from "typeorm";
 import { Grant } from "../entities/Grant";
 import { GrantSyncService } from "../services/grant-sync-service";
 
+const translations: Record<string, Record<number, { title: string; description: string }>> = {
+  es: {
+    1: {
+      title: "Subvenciones de Código Abierto Q2",
+      description: "Apoyando los mejores proyectos de código abierto.",
+    },
+  },
+};
+
+const defaultGrantsData: Record<number, { title: string; description: string }> = {
+  1: {
+    title: "Open Source Grants Q2",
+    description: "Supporting the best open-source projects.",
+  },
+  2: {
+    title: "Climate Data Tools",
+    description: "Tools for measuring climate impact.",
+  },
+};
+
+function localizeGrant(grant: Grant, lang?: string): any {
+  const grantId = grant.id;
+  const defaults = defaultGrantsData[grantId] || { title: grant.title, description: grant.description || "" };
+  
+  const localized = {
+    ...grant,
+    title: defaults.title,
+    description: defaults.description || null,
+  };
+
+  if (lang && translations[lang] && translations[lang][grantId]) {
+    const translation = translations[lang][grantId];
+    if (translation.title) localized.title = translation.title;
+    if (translation.description) localized.description = translation.description;
+  }
+
+  return localized;
+}
+
 export const buildGrantRouter = (grantRepo: Repository<Grant>, syncService: GrantSyncService) => {
   const router = Router();
 
-  router.get("/", async (_req, res, next) => {
+  router.get("/", async (req, res, next) => {
     try {
       await syncService.syncAllGrants();
       const grants = await grantRepo.find({ order: { id: "ASC" } });
-      res.json({ data: grants });
+      const lang = req.header("Accept-Language");
+      const localizedGrants = grants.map((g) => localizeGrant(g, lang));
+      res.json({ data: localizedGrants });
     } catch (error) {
       next(error);
     }
@@ -32,7 +73,8 @@ export const buildGrantRouter = (grantRepo: Repository<Grant>, syncService: Gran
         return;
       }
 
-      res.json({ data: grant });
+      const lang = req.header("Accept-Language");
+      res.json({ data: localizeGrant(grant, lang) });
     } catch (error) {
       next(error);
     }
