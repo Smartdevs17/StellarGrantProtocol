@@ -19,7 +19,10 @@ export class FreighterAdapter implements WalletAdapter {
   readonly icon = "https://freighter.app/favicon.ico";
 
   isAvailable(): boolean {
-    return typeof window !== "undefined" && Boolean((window as any).freighter);
+    return (
+      typeof window !== "undefined" &&
+      Boolean((window as Window & { freighter?: unknown }).freighter)
+    );
   }
 
   async getPublicKey(): Promise<string> {

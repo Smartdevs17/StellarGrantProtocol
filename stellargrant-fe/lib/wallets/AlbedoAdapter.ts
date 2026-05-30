@@ -9,6 +9,12 @@ import type { WalletAdapter } from "./types";
 
 type AlbedoNetwork = "testnet" | "public";
 
+/** Minimal shape of the window.albedo global injected by Albedo. */
+interface AlbedoGlobal {
+  publicKey(params: Record<string, never>): Promise<{ pubkey?: string }>;
+  tx(params: { xdr: string; network: AlbedoNetwork }): Promise<{ signed_envelope_xdr?: string }>;
+}
+
 export class AlbedoAdapter implements WalletAdapter {
   readonly name = "Albedo";
   readonly icon = "https://albedo.link/img/albedo-logo.svg";
@@ -21,13 +27,16 @@ export class AlbedoAdapter implements WalletAdapter {
   }
 
   isAvailable(): boolean {
-    return typeof window !== "undefined" && Boolean((window as any).albedo);
+    return (
+      typeof window !== "undefined" &&
+      Boolean((window as Window & { albedo?: unknown }).albedo)
+    );
   }
 
   async getPublicKey(): Promise<string> {
     if (this.publicKeyCache) return this.publicKeyCache;
 
-    const albedo = (window as any).albedo;
+    const albedo = (window as Window & { albedo?: AlbedoGlobal }).albedo;
     if (!albedo) throw new Error("Albedo is not installed or available");
 
     const response = await this.withPopupGuard<{ pubkey?: string }>(() =>
@@ -42,7 +51,7 @@ export class AlbedoAdapter implements WalletAdapter {
   }
 
   async signTransaction(txXdr: string, networkPassphrase: string): Promise<string> {
-    const albedo = (window as any).albedo;
+    const albedo = (window as Window & { albedo?: AlbedoGlobal }).albedo;
     if (!albedo) throw new Error("Albedo is not installed or available");
 
     const network = this.resolveNetwork(networkPassphrase || this.network);
