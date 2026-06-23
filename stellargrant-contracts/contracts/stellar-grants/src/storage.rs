@@ -1,4 +1,7 @@
-use crate::types::{ContractError, ContributorProfile, EscrowState, Grant, Milestone};
+use crate::types::{
+    ContractError, ContractVersion, ContributorProfile, EscrowState, Grant, MigrationRecord,
+    Milestone, RegistryEntry,
+};
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
 #[contracttype]
@@ -18,6 +21,12 @@ pub enum DataKey {
     MultisigSigners(u64),
     ReleaseApproval(u64, Address),
     ReviewerReputation(Address),
+    // Contract version tracking (#527)
+    ContractVersion,
+    MigrationLog,
+    // Global registry (#520)
+    ContributorIndex,
+    ReviewerAllowlist,
 }
 
 pub struct Storage;
@@ -183,5 +192,58 @@ impl Storage {
 
     pub fn get_identity_oracle(env: &Env) -> Option<Address> {
         env.storage().persistent().get(&DataKey::IdentityOracle)
+    }
+
+    // ── Contract Version (#527) ───────────────────────────────────────
+
+    pub fn get_contract_version(env: &Env) -> Option<ContractVersion> {
+        env.storage().persistent().get(&DataKey::ContractVersion)
+    }
+
+    pub fn set_contract_version(env: &Env, version: &ContractVersion) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::ContractVersion, version);
+    }
+
+    pub fn get_migration_log(env: &Env) -> Vec<MigrationRecord> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MigrationLog)
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn set_migration_log(env: &Env, log: &Vec<MigrationRecord>) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::MigrationLog, log);
+    }
+
+    // ── Global Registry (#520) ────────────────────────────────────────
+
+    pub fn get_contributor_index(env: &Env) -> Vec<RegistryEntry> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ContributorIndex)
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn set_contributor_index(env: &Env, index: &Vec<RegistryEntry>) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::ContributorIndex, index);
+    }
+
+    pub fn get_reviewer_allowlist(env: &Env) -> Vec<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ReviewerAllowlist)
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn set_reviewer_allowlist(env: &Env, list: &Vec<Address>) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::ReviewerAllowlist, list);
     }
 }
