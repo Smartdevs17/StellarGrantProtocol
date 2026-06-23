@@ -227,4 +227,102 @@ mod tests {
 
         assert_eq!(result, Err(Ok(ContractError::Unauthorized.into())));
     }
+
+    fn setup_admin(client: &StellarGrantsContractClient<'_>, admin: &Address) {
+        client.initialize(admin);
+        client.set_global_admin(admin, admin);
+    }
+
+    #[test]
+    fn test_paused_blocks_grant_create() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, _) = setup_test(&env);
+        setup_admin(&client, &admin);
+
+        let reason = String::from_str(&env, "critical exploit");
+        client.pause(&admin, &reason);
+        assert!(client.is_paused());
+
+        let owner = Address::generate(&env);
+        let token = Address::generate(&env);
+        let result = client.try_grant_create(
+            &owner,
+            &String::from_str(&env, "Title"),
+            &String::from_str(&env, "Description"),
+            &token,
+            &1000,
+            &100,
+            &10,
+            &Vec::new(&env),
+        );
+
+        assert_eq!(result, Err(Ok(ContractError::ContractPaused.into())));
+    }
+
+    #[test]
+    fn test_unpause_allows_grant_create() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, _) = setup_test(&env);
+        setup_admin(&client, &admin);
+
+        let reason = String::from_str(&env, "critical exploit");
+        client.pause(&admin, &reason);
+        client.unpause(&admin);
+        assert!(!client.is_paused());
+
+        let owner = Address::generate(&env);
+        let token = Address::generate(&env);
+        let result = client.try_grant_create(
+            &owner,
+            &String::from_str(&env, "Title"),
+            &String::from_str(&env, "Description"),
+            &token,
+            &1000,
+            &100,
+            &10,
+            &Vec::new(&env),
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_pause_history_grows() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, _) = setup_test(&env);
+        setup_admin(&client, &admin);
+
+        assert_eq!(client.pause_history().len(), 0);
+
+        client.pause(&admin, &String::from_str(&env, "first incident"));
+        assert_eq!(client.pause_history().len(), 1);
+
+        client.unpause(&admin);
+        client.pause(&admin, &String::from_str(&env, "second incident"));
+        assert_eq!(client.pause_history().len(), 2);
+
+        let latest = client.pause_history().get(1).unwrap();
+        assert_eq!(latest.reason, String::from_str(&env, "second incident"));
+        assert!(latest.unpaused_at.is_none());
+    }
+
+    #[test]
+    fn test_pause_unauthorized() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, _) = setup_test(&env);
+        setup_admin(&client, &admin);
+
+        let non_admin = Address::generate(&env);
+        let result = client.try_pause(&non_admin, &String::from_str(&env, "nope"));
+
+        assert_eq!(result, Err(Ok(ContractError::Unauthorized.into())));
+    }
 }

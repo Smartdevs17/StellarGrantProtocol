@@ -1,6 +1,8 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 mod constants;
+mod emergency;
+mod errors;
 mod events;
 mod governance;
 mod migration;
@@ -9,11 +11,12 @@ mod registry;
 mod storage;
 mod types;
 
+pub use errors::ContractError;
 pub use events::Events;
 pub use storage::Storage;
 pub use types::{
-    ContractError, ContractVersion, EscrowLifecycleState, EscrowMode, EscrowState, Grant, GrantFund,
-    GrantStatus, MigrationRecord, Milestone, MilestoneState, MilestoneSubmission, RegistryEntry,
+    ContractVersion, EscrowLifecycleState, EscrowMode, EscrowState, Grant, GrantFund, GrantStatus,
+    MigrationRecord, Milestone, MilestoneState, MilestoneSubmission, PauseRecord, RegistryEntry,
     RegistryEntryType,
 };
 
@@ -60,6 +63,7 @@ impl StellarGrantsContract {
         num_milestones: u32,
         reviewers: soroban_sdk::Vec<Address>,
     ) -> Result<u64, ContractError> {
+        emergency::require_not_paused(&env)?;
         owner.require_auth();
 
         if total_amount <= 0 || milestone_amount <= 0 {
@@ -475,13 +479,20 @@ impl StellarGrantsContract {
         approve: bool,
         feedback: Option<String>,
     ) -> Result<bool, ContractError> {
+        emergency::require_not_paused(&env)?;
         reviewer.require_auth();
 
         let mut grant = Storage::get_grant_v(&env, grant_id);
         let mut milestone = Storage::get_milestone_v(&env, grant_id, milestone_idx);
 
-        let result =
-            governance::cast_vote(&env, &mut grant, &mut milestone, &reviewer, approve, feedback)?;
+        let result = governance::cast_vote(
+            &env,
+            &mut grant,
+            &mut milestone,
+            &reviewer,
+            approve,
+            feedback,
+        )?;
 
         Storage::set_milestone(&env, grant_id, milestone_idx, &milestone);
 
@@ -496,6 +507,7 @@ impl StellarGrantsContract {
         reviewer: Address,
         reason: String,
     ) -> Result<bool, ContractError> {
+        emergency::require_not_paused(&env)?;
         reviewer.require_auth();
 
         let grant = Storage::get_grant_v(&env, grant_id);
@@ -561,6 +573,7 @@ impl StellarGrantsContract {
         description: String,
         proof_url: String,
     ) -> Result<(), ContractError> {
+        emergency::require_not_paused(&env)?;
         recipient.require_auth();
 
         let grant = Storage::get_grant(&env, grant_id).ok_or(ContractError::GrantNotFound)?;
@@ -590,6 +603,7 @@ impl StellarGrantsContract {
         recipient: Address,
         submissions: Vec<MilestoneSubmission>,
     ) -> Result<(), ContractError> {
+        emergency::require_not_paused(&env)?;
         recipient.require_auth();
 
         let batch_len = submissions.len();
@@ -631,6 +645,7 @@ impl StellarGrantsContract {
         funder: Address,
         amount: i128,
     ) -> Result<(), ContractError> {
+        emergency::require_not_paused(&env)?;
         funder.require_auth();
         reentrancy::with_non_reentrant(&env, || {
             if amount <= 0 {
@@ -737,11 +752,7 @@ impl StellarGrantsContract {
     // ── Global Registry (#520) ──────────────────────────────────────────
 
     /// Paginated list of all registered contributors.
-    pub fn get_contributors_page(
-        env: Env,
-        offset: u32,
-        limit: u32,
-    ) -> Vec<RegistryEntry> {
+    pub fn get_contributors_page(env: Env, offset: u32, limit: u32) -> Vec<RegistryEntry> {
         registry::get_contributors_page(&env, offset, limit)
     }
 
@@ -885,6 +896,28 @@ impl StellarGrantsContract {
             .persistent()
             .set(&storage::DataKey::IdentityOracle, &oracle);
         Ok(())
+    }
+
+    // ── Emergency Pause (#521) ──────────────────────────────────────
+
+    /// Pause the contract. Global admin only.
+    pub fn pause(env: Env, admin: Address, reason: String) -> Result<(), ContractError> {
+        emergency::pause(&env, &admin, reason)
+    }
+
+    /// Unpause the contract. Global admin only.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        emergency::unpause(&env, &admin)
+    }
+
+    /// Returns true if the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        emergency::is_paused(&env)
+    }
+
+    /// Return the full history of pause/unpause events.
+    pub fn pause_history(env: Env) -> Vec<PauseRecord> {
+        emergency::pause_history(&env)
     }
 
     // ── Bulk Funding (#44) ──────────────────────────────────────────

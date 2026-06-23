@@ -1,4 +1,6 @@
-use soroban_sdk::{contracterror, contracttype, Address, Map, String, Vec};
+use soroban_sdk::{contracttype, Address, Map, String, Vec};
+
+pub use crate::errors::ContractError;
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,34 +38,6 @@ pub struct RegistryEntry {
 pub enum RegistryEntryType {
     Contributor = 0,
     Reviewer = 1,
-}
-
-/// Contract error types
-#[contracterror]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
-pub enum ContractError {
-    GrantNotFound = 1,
-    Unauthorized = 2,
-    MilestoneAlreadyApproved = 3,
-    QuorumNotReached = 4,
-    DeadlinePassed = 5,
-    InvalidInput = 6,
-    MilestoneNotSubmitted = 7,
-    AlreadyVoted = 8,
-    MilestoneNotFound = 9,
-    InvalidState = 10,
-    NoRefundableAmount = 11,
-    GrantAlreadyReleased = 12,
-    NotMultisigSigner = 13,
-    AlreadySignedRelease = 14,
-    NotAllMilestonesApproved = 15,
-    InsufficientStake = 16,
-    StakeNotFound = 17,
-    AlreadyRegistered = 18,
-    BatchEmpty = 19,
-    BatchTooLarge = 20,
-    MilestoneAlreadySubmitted = 21,
 }
 
 #[contracttype]
@@ -174,4 +148,13 @@ pub struct MilestoneSubmission {
     pub idx: u32,
     pub description: String,
     pub proof: String,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PauseRecord {
+    pub paused_by: Address,
+    pub paused_at: u64,
+    pub unpaused_at: Option<u64>,
+    pub reason: String,
 }
