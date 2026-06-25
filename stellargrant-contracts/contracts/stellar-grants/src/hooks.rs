@@ -1,6 +1,7 @@
-use soroban_sdk::{contractevent, vec, Address, Bytes, Env, InvokeError, Symbol, Val, Vec};
+use soroban_sdk::{contractevent, Address, Bytes, Env, Vec};
 
 use crate::constants::MAX_HOOKS_PER_EVENT;
+use crate::cross_contract;
 use crate::errors::ContractError;
 use crate::storage::Storage;
 use crate::types::{HookCallResult, HookEvent, HookRegistration};
@@ -105,16 +106,12 @@ pub fn trigger(env: &Env, event: HookEvent, payload: Bytes) -> Vec<HookCallResul
             continue;
         }
 
-        // Use try_invoke_contract to avoid propagating failures
-        let args: Vec<Val> = vec![env, event_u32.into(), payload.clone().into()];
-        type HookResult = Result<
-            Result<Val, soroban_sdk::ConversionError>,
-            Result<soroban_sdk::Error, InvokeError>,
-        >;
-        let result: HookResult =
-            env.try_invoke_contract(&hook.target_contract, &Symbol::new(env, "on_hook"), args);
-
-        let success = matches!(result, Ok(Ok(_)));
+        let success = cross_contract::call_hook_receiver(
+            env,
+            &hook.target_contract,
+            event_u32,
+            payload.clone(),
+        );
         let error_code: Option<u32> = if success { None } else { Some(1) };
 
         let call_result = HookCallResult {

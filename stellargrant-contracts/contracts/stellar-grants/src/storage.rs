@@ -1,12 +1,11 @@
 use crate::types::{
-    AcceptanceCriteria, AuditEntry, BountyGrant, BountySubmission, BreakerState,
-    ChecklistSubmission, ComplianceAttestation, ContractError, ContractVersion, ContributorProfile,
-    DaoProposal, DexConfig, Dispute, EscrowAccount, EscrowState, FunderLedger, Grant,
-    GrantCategory, GrantTag, HookEvent, HookRegistration, InsuranceClaim, InsurancePolicy,
-    MigrationRecord, Milestone, MultisigProposal, OracleConfig, PauseRecord, PaymentStream,
-    ProtocolConfig, ProtocolMetrics, ProtocolModule, QuadraticVoteRecord, RegistryEntry,
-    RelayAllowance, RelayConfig, RenewalProposal, ReviewerProfile, ReviewerRequest, ScoringRubric,
-    TokenMetric, VoiceCredits, VotingMechanism,
+    AcceptanceCriteria, AuditEntry, BreakerState, ChecklistSubmission, ComplianceAttestation,
+    ContractError, ContractVersion, ContributorProfile, DexConfig, Dispute, EscrowAccount,
+    EscrowState, FunderLedger, Grant, GrantCategory, GrantTag, HookEvent, HookRegistration,
+    InsuranceClaim, InsurancePolicy, MerkleCommitment, MigrationRecord, Milestone,
+    MultisigProposal, OracleConfig, PauseRecord, PaymentStream, ProtocolConfig, ProtocolMetrics,
+    ProtocolModule, QuadraticVoteRecord, RateLimitAction, RateLimitRecord, RegistryEntry, RelayAllowance, RelayConfig, RenewalProposal,
+    ReviewerProfile, ReviewerRequest, ScoringRubric, TokenMetric, VoiceCredits, VotingMechanism,
 };
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
@@ -89,21 +88,6 @@ pub enum DataKey {
     // Issue #577: grant renewal module
     RenewalProposal(u64),
     RenewalHistory(u64),
-    // Issue #519: Protocol treasury management
-    TreasuryAddress,
-    TreasuryBalance(Address),
-    // Issue #532: Protocol-wide DAO governance
-    DaoProposalCounter,
-    DaoProposal(u64),
-    DaoVoterRecord(u64, Address),
-    DaoModeEnabled,
-    DaoVotingPeriodLedgers,
-    DaoQuorumVotes,
-    // Issue #533: Competitive bounty-mode grants
-    BountyCounter,
-    BountyGrant(u64),
-    BountySubmission(u64, Address),
-    BountySubmitters(u64),
     // Issue #576: token swap DEX config
     DexConfig,
     // Issue #581: milestone checklist
@@ -114,6 +98,10 @@ pub enum DataKey {
     ScoringRubricCounter,
     // Issue #594: circuit breaker
     BreakerState(ProtocolModule),
+    // Issue #545: Merkle evidence commitments
+    MerkleCommitment(u64, u32),
+    // Issue #544: per-address rate limits
+    RateLimit(Address, RateLimitAction),
 }
 
 const PERSISTENT_TTL_THRESHOLD: u32 = 100_000;
@@ -141,13 +129,6 @@ impl Storage {
             .persistent()
             .set(&DataKey::GrantCounter, &count);
         count
-    }
-
-    pub fn get_grant_count(env: &Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::GrantCounter)
-            .unwrap_or(0)
     }
 
     pub fn get_global_admin(env: &Env) -> Option<Address> {
@@ -446,17 +427,9 @@ impl Storage {
             .set(&DataKey::Stream(stream.id), stream);
     }
 
-    pub fn get_grant_count(env: &Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::GrantCounter)
-            .unwrap_or(0)
-    }
+    // ── Quadratic Voting (#537) ───────────────────────────────────────────────
 
-    pub fn get_contributor(
-        env: &Env,
-        contributor: soroban_sdk::Address,
-    ) -> Option<crate::types::ContributorProfile> {
+    pub fn get_voice_credits(env: &Env, voter: &Address, grant_id: u64) -> Option<VoiceCredits> {
         env.storage()
             .persistent()
             .get(&DataKey::VoiceCredits(voter.clone(), grant_id))
@@ -660,178 +633,6 @@ impl Storage {
         Self::bump_persistent_ttl(env, &key);
     }
 
-    // ── Issue #519: Protocol treasury management ──────────────────────────────
-
-    pub fn get_treasury_address(env: &Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::TreasuryAddress)
-    }
-
-    pub fn set_treasury_address(env: &Env, treasury: &Address) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::TreasuryAddress, treasury);
-    }
-
-    pub fn get_treasury_balance(env: &Env, token: &Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::TreasuryBalance(token.clone()))
-            .unwrap_or(0)
-    }
-
-    pub fn set_treasury_balance(env: &Env, token: &Address, balance: i128) {
-        let key = DataKey::TreasuryBalance(token.clone());
-        env.storage().persistent().set(&key, &balance);
-        Self::bump_persistent_ttl(env, &key);
-    }
-
-    // ── Issue #532: Protocol-wide DAO governance ──────────────────────────────
-
-    pub fn next_dao_proposal_id(env: &Env) -> u64 {
-        let mut id: u64 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DaoProposalCounter)
-            .unwrap_or(0);
-        id += 1;
-        env.storage()
-            .persistent()
-            .set(&DataKey::DaoProposalCounter, &id);
-        id
-    }
-
-    pub fn get_dao_proposal_count(env: &Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::DaoProposalCounter)
-            .unwrap_or(0)
-    }
-
-    pub fn get_dao_proposal(env: &Env, id: u64) -> Option<DaoProposal> {
-        let key = DataKey::DaoProposal(id);
-        let proposal = env.storage().persistent().get(&key);
-        if proposal.is_some() {
-            Self::bump_persistent_ttl(env, &key);
-        }
-        proposal
-    }
-
-    pub fn set_dao_proposal(env: &Env, proposal: &DaoProposal) {
-        let key = DataKey::DaoProposal(proposal.id);
-        env.storage().persistent().set(&key, proposal);
-        Self::bump_persistent_ttl(env, &key);
-    }
-
-    pub fn has_dao_voted(env: &Env, proposal_id: u64, voter: &Address) -> bool {
-        env.storage()
-            .persistent()
-            .has(&DataKey::DaoVoterRecord(proposal_id, voter.clone()))
-    }
-
-    pub fn record_dao_vote(env: &Env, proposal_id: u64, voter: &Address) {
-        let key = DataKey::DaoVoterRecord(proposal_id, voter.clone());
-        env.storage().persistent().set(&key, &true);
-        Self::bump_persistent_ttl(env, &key);
-    }
-
-    pub fn is_dao_mode_enabled(env: &Env) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::DaoModeEnabled)
-            .unwrap_or(false)
-    }
-
-    pub fn set_dao_mode_enabled(env: &Env, enabled: bool) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::DaoModeEnabled, &enabled);
-    }
-
-    pub fn get_dao_voting_period_ledgers(env: &Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::DaoVotingPeriodLedgers)
-            .unwrap_or(crate::constants::DEFAULT_DAO_VOTING_PERIOD_LEDGERS)
-    }
-
-    pub fn set_dao_voting_period_ledgers(env: &Env, ledgers: u32) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::DaoVotingPeriodLedgers, &ledgers);
-    }
-
-    pub fn get_dao_quorum_votes(env: &Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::DaoQuorumVotes)
-            .unwrap_or(crate::constants::DEFAULT_DAO_QUORUM_VOTES)
-    }
-
-    pub fn set_dao_quorum_votes(env: &Env, quorum: u64) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::DaoQuorumVotes, &quorum);
-    }
-
-    // ── Issue #533: Competitive bounty-mode grants ────────────────────────────
-
-    pub fn next_bounty_id(env: &Env) -> u64 {
-        let mut id: u64 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BountyCounter)
-            .unwrap_or(0);
-        id += 1;
-        env.storage().persistent().set(&DataKey::BountyCounter, &id);
-        id
-    }
-
-    pub fn get_bounty(env: &Env, bounty_id: u64) -> Option<BountyGrant> {
-        let key = DataKey::BountyGrant(bounty_id);
-        let bounty = env.storage().persistent().get(&key);
-        if bounty.is_some() {
-            Self::bump_persistent_ttl(env, &key);
-        }
-        bounty
-    }
-
-    pub fn set_bounty(env: &Env, bounty: &BountyGrant) {
-        let key = DataKey::BountyGrant(bounty.id);
-        env.storage().persistent().set(&key, bounty);
-        Self::bump_persistent_ttl(env, &key);
-    }
-
-    pub fn get_bounty_submission(
-        env: &Env,
-        bounty_id: u64,
-        submitter: &Address,
-    ) -> Option<BountySubmission> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::BountySubmission(bounty_id, submitter.clone()))
-    }
-
-    pub fn set_bounty_submission(env: &Env, submission: &BountySubmission) {
-        let key = DataKey::BountySubmission(submission.bounty_id, submission.submitter.clone());
-        env.storage().persistent().set(&key, submission);
-        Self::bump_persistent_ttl(env, &key);
-    }
-
-    pub fn get_bounty_submitters(env: &Env, bounty_id: u64) -> Vec<Address> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::BountySubmitters(bounty_id))
-            .unwrap_or_else(|| Vec::new(env))
-    }
-
-    pub fn add_bounty_submitter(env: &Env, bounty_id: u64, submitter: &Address) {
-        let key = DataKey::BountySubmitters(bounty_id);
-        let mut submitters = Self::get_bounty_submitters(env, bounty_id);
-        submitters.push_back(submitter.clone());
-        env.storage().persistent().set(&key, &submitters);
-        Self::bump_persistent_ttl(env, &key);
-    }
-
     // ── Issue #529: Escrow Module ─────────────────────────────────────────────
 
     pub fn get_escrow_account(env: &Env, grant_id: u64) -> Option<EscrowAccount> {
@@ -968,9 +769,7 @@ impl Storage {
     }
 
     pub fn set_relay_config(env: &Env, config: &RelayConfig) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::RelayConfig, config);
+        env.storage().persistent().set(&DataKey::RelayConfig, config);
     }
 
     pub fn get_relay_allowance(env: &Env, address: &Address) -> Option<RelayAllowance> {
@@ -1008,16 +807,13 @@ impl Storage {
     }
 
     pub fn set_reviewer_profile(env: &Env, profile: &ReviewerProfile) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::ReviewerProfile(profile.reviewer.clone()), profile);
+        env.storage().persistent().set(
+            &DataKey::ReviewerProfile(profile.reviewer.clone()),
+            profile,
+        );
     }
 
-    pub fn get_reviewer_request(
-        env: &Env,
-        grant_id: u64,
-        reviewer: &Address,
-    ) -> Option<ReviewerRequest> {
+    pub fn get_reviewer_request(env: &Env, grant_id: u64, reviewer: &Address) -> Option<ReviewerRequest> {
         env.storage()
             .persistent()
             .get(&DataKey::ReviewerRequest(grant_id, reviewer.clone()))
@@ -1033,9 +829,7 @@ impl Storage {
     // ── Issue #571: Grant Tags Module ─────────────────────────────────────────
 
     pub fn get_grant_tags(env: &Env, grant_id: u64) -> Option<GrantTag> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::GrantTags(grant_id))
+        env.storage().persistent().get(&DataKey::GrantTags(grant_id))
     }
 
     pub fn set_grant_tags(env: &Env, tags: &GrantTag) {
@@ -1065,9 +859,7 @@ impl Storage {
     }
 
     pub fn set_category_list(env: &Env, categories: &Vec<GrantCategory>) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::CategoryList, categories);
+        env.storage().persistent().set(&DataKey::CategoryList, categories);
     }
 
     // ── Issue #577: Grant Renewal Module ──────────────────────────────────────
@@ -1109,32 +901,19 @@ impl Storage {
 
     // ── Issue #581: Milestone Checklist ─────────────────────────────────────────
 
-    pub fn get_milestone_checklist(
-        env: &Env,
-        grant_id: u64,
-        milestone_idx: u32,
-    ) -> Option<Vec<AcceptanceCriteria>> {
+    pub fn get_milestone_checklist(env: &Env, grant_id: u64, milestone_idx: u32) -> Option<Vec<AcceptanceCriteria>> {
         env.storage()
             .persistent()
             .get(&DataKey::MilestoneChecklist(grant_id, milestone_idx))
     }
 
-    pub fn set_milestone_checklist(
-        env: &Env,
-        grant_id: u64,
-        milestone_idx: u32,
-        criteria: &Vec<AcceptanceCriteria>,
-    ) {
+    pub fn set_milestone_checklist(env: &Env, grant_id: u64, milestone_idx: u32, criteria: &Vec<AcceptanceCriteria>) {
         let key = DataKey::MilestoneChecklist(grant_id, milestone_idx);
         env.storage().persistent().set(&key, criteria);
         Self::bump_persistent_ttl(env, &key);
     }
 
-    pub fn get_checklist_submission(
-        env: &Env,
-        grant_id: u64,
-        milestone_idx: u32,
-    ) -> Option<ChecklistSubmission> {
+    pub fn get_checklist_submission(env: &Env, grant_id: u64, milestone_idx: u32) -> Option<ChecklistSubmission> {
         env.storage()
             .persistent()
             .get(&DataKey::ChecklistSubmission(grant_id, milestone_idx))
@@ -1191,5 +970,51 @@ impl Storage {
         env.storage()
             .persistent()
             .remove(&DataKey::BreakerState(module.clone()));
+    }
+
+    // ── Issue #545: Merkle commitments ────────────────────────────────────────
+
+    pub fn get_merkle_commitment(
+        env: &Env,
+        grant_id: u64,
+        milestone_idx: u32,
+    ) -> Option<MerkleCommitment> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MerkleCommitment(grant_id, milestone_idx))
+    }
+
+    pub fn set_merkle_commitment(
+        env: &Env,
+        grant_id: u64,
+        milestone_idx: u32,
+        commitment: &MerkleCommitment,
+    ) {
+        let key = DataKey::MerkleCommitment(grant_id, milestone_idx);
+        env.storage().persistent().set(&key, commitment);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    // ── Issue #544: Rate limits ─────────────────────────────────────────────────
+
+    pub fn get_rate_limit_record(
+        env: &Env,
+        address: &Address,
+        action: &RateLimitAction,
+    ) -> Option<RateLimitRecord> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RateLimit(address.clone(), action.clone()))
+    }
+
+    pub fn set_rate_limit_record(
+        env: &Env,
+        address: &Address,
+        action: &RateLimitAction,
+        record: &RateLimitRecord,
+    ) {
+        let key = DataKey::RateLimit(address.clone(), action.clone());
+        env.storage().persistent().set(&key, record);
+        Self::bump_persistent_ttl(env, &key);
     }
 }

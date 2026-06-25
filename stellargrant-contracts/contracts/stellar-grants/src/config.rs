@@ -14,6 +14,7 @@ pub fn default_config() -> ProtocolConfig {
         max_grant_title_len: 128,
         max_grant_desc_len: 1024,
         multisig_threshold: 0,
+        rate_limit_multiplier: 1,
     }
 }
 

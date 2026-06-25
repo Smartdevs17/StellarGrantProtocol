@@ -63,6 +63,18 @@ pub const MAX_DAO_DESCRIPTION_LEN: u32 = 2_048;
 // ── Bounty-Mode Grants (#533) ───────────────────────────────────────────────
 pub const MAX_BOUNTY_SUBMISSIONS: u32 = 50;
 
+// ── Rate limiting (#544) ─────────────────────────────────────────────────────
+pub const RATE_LIMIT_GRANT_CREATE_MAX: u32 = 5;
+pub const RATE_LIMIT_GRANT_CREATE_WINDOW: u64 = 3_600;
+pub const RATE_LIMIT_MILESTONE_SUBMIT_MAX: u32 = 10;
+pub const RATE_LIMIT_MILESTONE_SUBMIT_WINDOW: u64 = 3_600;
+pub const RATE_LIMIT_CONTRIBUTOR_REGISTER_MAX: u32 = 3;
+pub const RATE_LIMIT_CONTRIBUTOR_REGISTER_WINDOW: u64 = 3_600;
+pub const RATE_LIMIT_DISPUTE_RAISE_MAX: u32 = 2;
+pub const RATE_LIMIT_DISPUTE_RAISE_WINDOW: u64 = 86_400;
+pub const RATE_LIMIT_BOUNTY_CREATE_MAX: u32 = 5;
+pub const RATE_LIMIT_BOUNTY_CREATE_WINDOW: u64 = 3_600;
+
 #[cfg(test)]
 mod tests {
     use super::*;
