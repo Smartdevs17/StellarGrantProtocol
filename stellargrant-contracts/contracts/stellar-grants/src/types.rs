@@ -1,29 +1,43 @@
-use soroban_sdk::{contracterror, contracttype, Address, Map, String, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, Map, String, Vec};
 
-/// Contract error types
-#[contracterror]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub use crate::errors::ContractError;
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MigrationRecord {
+    pub from_version: u32,
+    pub to_version: u32,
+    pub run_by: Address,
+    pub run_at: u64,
+    pub success: bool,
+    pub notes: String,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContractVersion {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+    pub deployed_at: u64,
+    pub deployer: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RegistryEntry {
+    pub address: Address,
+    pub registered_at: u64,
+    pub is_active: bool,
+    pub entry_type: RegistryEntryType,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[repr(u32)]
-pub enum ContractError {
-    GrantNotFound = 1,
-    Unauthorized = 2,
-    MilestoneAlreadyApproved = 3,
-    QuorumNotReached = 4,
-    DeadlinePassed = 5,
-    InvalidInput = 6,
-    MilestoneNotSubmitted = 7,
-    AlreadyVoted = 8,
-    MilestoneNotFound = 9,
-    InvalidState = 10,
-    NoRefundableAmount = 11,
-    NotAllMilestonesApproved = 12,
-    AlreadyRegistered = 13,
-    MilestoneAlreadySubmitted = 14,
-    InsufficientStake = 15,
-    StakeNotFound = 16,
-    NotVerified = 17,
-    BatchEmpty = 18,
-    BatchTooLarge = 19,
+pub enum RegistryEntryType {
+    Contributor = 0,
+    Reviewer = 1,
 }
 
 #[contracttype]
@@ -34,6 +48,7 @@ pub enum MilestoneState {
     Submitted = 1,
     Approved = 2,
     Rejected = 3,
+    Paid = 4,
 }
 
 #[contracttype]
@@ -86,6 +101,7 @@ pub struct Grant {
     pub funders: Vec<GrantFund>,
     pub reason: Option<String>,
     pub timestamp: u64,
+    pub require_compliance: Option<u32>,
 }
 
 #[contracttype]
@@ -97,6 +113,7 @@ pub struct ContributorProfile {
     pub skills: Vec<String>,
     pub github_url: String,
     pub registration_timestamp: u64,
+    pub reputation_score: u64,
     pub grants_count: u32,
     pub total_earned: i128,
     pub reputation_score: u64,
