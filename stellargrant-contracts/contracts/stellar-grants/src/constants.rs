@@ -115,6 +115,15 @@ mod tests {
     }
 }
 
+// ── Issue #590: Public Review ────────────────────────────────────────────────
+pub const MAX_PUBLIC_REVIEW_COMMENT_LEN: u32 = 500;
+
+// ── Issue #595: Milestone DAG ─────────────────────────────────────────────────
+pub const MAX_MILESTONE_DEPS: u32 = 20;
+
+// ── Issue #565: Contributor Portfolio ─────────────────────────────────────────
+pub const PORTFOLIO_RECENT_GRANTS_LIMIT: u32 = 5;
+
 // ── Issue #596: Well-known parameter keys ────────────────────────────────────
 pub const PARAM_MAX_GRANT_AMOUNT: &str = "max_grant_amount";
 pub const PARAM_MIN_GRANT_AMOUNT: &str = "min_grant_amount";

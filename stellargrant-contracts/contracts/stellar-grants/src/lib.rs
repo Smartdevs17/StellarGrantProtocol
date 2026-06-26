@@ -7,6 +7,10 @@ mod checklist;
 mod circuit_breaker;
 mod crowdfund;
 mod compliance;
+mod milestone_deps;
+mod milestone_nft;
+mod open_review;
+mod portfolio;
 mod config;
 mod constants;
 mod cross_contract;
@@ -54,21 +58,22 @@ pub use storage::Storage;
 pub use types::{
     AcceptanceCriteria, AnalyticsSnapshot, AuditAction, AuditEntry, BreakerState, CategoryStats,
     ChecklistSubmission, ComplianceAttestation, ComplianceLevel, ComplianceStatus, ContractVersion,
-    CrowdfundCampaign, CrowdfundPledge, CrowdfundStatus,
+    ContributorPortfolio, CrowdfundCampaign, CrowdfundPledge, CrowdfundStatus,
     CriterionStatus, DexConfig, Dispute, DisputeStatus, EscrowAccount, EscrowLifecycleState,
     EscrowMode, EscrowState, EvidenceField, EvidenceFieldType, EvidenceSchema, FeeRecord,
-    FunderLedger, Grant, GrantArchetype, GrantCategory, GrantFund, GrantStatus, GrantTag,
+    FunderLedger, Grant, GrantArchetype, GrantCategory, GrantFund, GrantStatus, GrantSummary, GrantTag,
     GrantTemplate, HookCallResult, HookEvent, HookRegistration, InsuranceClaim, InsurancePolicy,
     Invoice, InvoiceStatus, IpRights, LicenseRecord, LicenseType, LineItem, MerkleCommitment,
-    MerkleProof, MigrationRecord, Milestone, MilestoneState, MilestoneSubmission, MultisigProposal,
-    MultisigSigner, OracleConfig, ParamRecord, ParamType, ParamValue, PauseRecord, PaymentSplit,
-    PaymentStream, PriceQuote, ProtocolConfig, ProtocolMetrics, ProtocolModule, QuadraticVoteRecord,
-    RateLimitAction, RegistryEntry, RegistryEntryType, RelayableAction, RelayAllowance, RelayConfig,
-    RelayRecord, RenewalProposal, RenewalStatus, ReputationTier, ReviewerAvailability, ReviewerProfile,
-    ReviewerRequest, ReviewerRequestStatus, Role, RoleAssignment, RollingWindow, ScoreResult,
-    ScoringDimension, ScoringRubric, ScoringWeight, SignatureStatus, SplitRecipient,
-    StructuredEvidence, SwapResult, SwapRoute, TokenMetric, TransferProposal, TransferableRole,
-    VoiceCredits, VotingMechanism,
+    MerkleProof, MigrationRecord, Milestone, MilestoneDag, MilestoneDependency, MilestoneNft,
+    MilestoneState, MilestoneSubmission, MultisigProposal, MultisigSigner,
+    NftMetadata, OracleConfig, ParamRecord, ParamType, ParamValue, PauseRecord, PaymentSplit, PaymentStream,
+    PriceQuote, ProtocolConfig, ProtocolMetrics, ProtocolModule, PublicReview, PublicReviewSignal,
+    QuadraticVoteRecord, RateLimitAction, RegistryEntry, RegistryEntryType, RelayableAction,
+    RelayAllowance, RelayConfig, RelayRecord, RenewalProposal, RenewalStatus, ReputationTier,
+    ReviewerAvailability, ReviewerProfile, ReviewerRequest, ReviewerRequestStatus, Role,
+    RoleAssignment, RollingWindow, ScoreResult, ScoringDimension, ScoringRubric, ScoringWeight,
+    SignatureStatus, SplitRecipient, StructuredEvidence, SwapResult, SwapRoute, TokenMetric,
+    TransferProposal, TransferableRole, VoiceCredits, VotingMechanism,
 };
 
 use metrics::MetricField;
@@ -497,6 +502,17 @@ impl StellarGrantsContract {
                 if hooks::has_hooks(&env, HookEvent::MilestoneApproved) {
                     hooks::trigger(&env, HookEvent::MilestoneApproved, Bytes::new(&env));
                 }
+                // Mint soulbound NFT certificate for the contributor (#570)
+                let meta = NftMetadata {
+                    name: milestone.description.clone(),
+                    description: milestone.description.clone(),
+                    grant_title: grant.title.clone(),
+                    image_uri: String::from_str(&env, ""),
+                    attributes: soroban_sdk::Vec::new(&env),
+                };
+                let _ = milestone_nft::mint(&env, grant_id, milestone_idx, &grant.owner, meta);
+                // Track this grant in the contributor's portfolio index (#565)
+                Storage::push_contributor_grant_id(&env, &grant.owner, grant_id);
             } else {
                 audit::log(
                     &env,
@@ -2327,6 +2343,160 @@ impl StellarGrantsContract {
     /// List all backer addresses for a campaign.
     pub fn crowdfund_list_backers(env: Env, campaign_id: u64) -> Vec<Address> {
         crowdfund::list_backers(&env, campaign_id)
+    }
+
+    // ── Portfolio (#565) ──────────────────────────────────────────────────────
+
+    pub fn get_portfolio(env: Env, contributor: Address) -> Result<ContributorPortfolio, ContractError> {
+        portfolio::get_portfolio(&env, &contributor)
+    }
+
+    pub fn portfolio_grant_summary(
+        env: Env,
+        contributor: Address,
+        grant_id: u64,
+    ) -> Result<GrantSummary, ContractError> {
+        portfolio::get_grant_summary(&env, &contributor, grant_id)
+    }
+
+    pub fn portfolio_earnings_by_token(env: Env, contributor: Address) -> Vec<(Address, i128)> {
+        portfolio::earnings_by_token(&env, &contributor)
+    }
+
+    pub fn portfolio_hash(env: Env, contributor: Address) -> Bytes {
+        portfolio::portfolio_hash(&env, &contributor)
+    }
+
+    // ── Milestone NFT (#570) ──────────────────────────────────────────────────
+
+    pub fn nft_get(env: Env, grant_id: u64, milestone_idx: u32) -> Option<MilestoneNft> {
+        milestone_nft::get_nft(&env, grant_id, milestone_idx)
+    }
+
+    pub fn nft_get_by_token_id(env: Env, token_id: u32) -> Option<MilestoneNft> {
+        milestone_nft::get_by_token_id(&env, token_id)
+    }
+
+    pub fn nft_get_by_owner(env: Env, owner: Address) -> Vec<u32> {
+        milestone_nft::get_by_owner(&env, &owner)
+    }
+
+    pub fn nft_verify(env: Env, token_id: u32) -> bool {
+        milestone_nft::verify_nft(&env, token_id)
+    }
+
+    pub fn nft_set_transferable(
+        env: Env,
+        admin: Address,
+        token_id: u32,
+        transferable: bool,
+    ) -> Result<(), ContractError> {
+        milestone_nft::set_transferable(&env, &admin, token_id, transferable)
+    }
+
+    pub fn nft_transfer(
+        env: Env,
+        from: Address,
+        to: Address,
+        token_id: u32,
+    ) -> Result<(), ContractError> {
+        milestone_nft::transfer(&env, &from, &to, token_id)
+    }
+
+    // ── Open Review (#590) ────────────────────────────────────────────────────
+
+    pub fn open_review_submit(
+        env: Env,
+        reviewer: Address,
+        grant_id: u64,
+        milestone_idx: u32,
+        signal: PublicReviewSignal,
+        comment: String,
+    ) -> Result<(), ContractError> {
+        open_review::submit_review(&env, &reviewer, grant_id, milestone_idx, signal, comment)
+    }
+
+    pub fn open_review_mark_helpful(
+        env: Env,
+        voter: Address,
+        grant_id: u64,
+        milestone_idx: u32,
+        reviewer: Address,
+    ) -> Result<(), ContractError> {
+        open_review::mark_helpful(&env, &voter, grant_id, milestone_idx, &reviewer)
+    }
+
+    pub fn open_review_get_reviews(
+        env: Env,
+        grant_id: u64,
+        milestone_idx: u32,
+    ) -> Vec<PublicReview> {
+        open_review::get_reviews(&env, grant_id, milestone_idx)
+    }
+
+    pub fn open_review_aggregate_signals(
+        env: Env,
+        grant_id: u64,
+        milestone_idx: u32,
+    ) -> (u32, u32, u32) {
+        open_review::aggregate_signals(&env, grant_id, milestone_idx)
+    }
+
+    pub fn open_review_get_review(
+        env: Env,
+        reviewer: Address,
+        grant_id: u64,
+        milestone_idx: u32,
+    ) -> Option<PublicReview> {
+        open_review::get_review(&env, &reviewer, grant_id, milestone_idx)
+    }
+
+    pub fn open_review_has_reviewed(
+        env: Env,
+        reviewer: Address,
+        grant_id: u64,
+        milestone_idx: u32,
+    ) -> bool {
+        open_review::has_reviewed(&env, &reviewer, grant_id, milestone_idx)
+    }
+
+    // ── Milestone DAG (#595) ──────────────────────────────────────────────────
+
+    pub fn milestone_deps_attach_dag(
+        env: Env,
+        owner: Address,
+        grant_id: u64,
+        deps: Vec<MilestoneDependency>,
+    ) -> Result<(), ContractError> {
+        milestone_deps::attach_dag(&env, &owner, grant_id, deps)
+    }
+
+    pub fn milestone_deps_can_submit(
+        env: Env,
+        grant_id: u64,
+        milestone_idx: u32,
+    ) -> Result<(), ContractError> {
+        milestone_deps::can_submit(&env, grant_id, milestone_idx)
+    }
+
+    pub fn milestone_deps_unblocked_milestones(env: Env, grant_id: u64) -> Vec<u32> {
+        milestone_deps::unblocked_milestones(&env, grant_id)
+    }
+
+    pub fn milestone_deps_dependents_of(env: Env, grant_id: u64, idx: u32) -> Vec<u32> {
+        milestone_deps::dependents_of(&env, grant_id, idx)
+    }
+
+    pub fn milestone_deps_get_dag(env: Env, grant_id: u64) -> Option<MilestoneDag> {
+        milestone_deps::get_dag(&env, grant_id)
+    }
+
+    pub fn milestone_deps_topological_order(
+        env: Env,
+        deps: Vec<MilestoneDependency>,
+        total: u32,
+    ) -> Result<Vec<u32>, ContractError> {
+        milestone_deps::topological_order(&env, &deps, total)
     }
 
     // ── Private Helpers ───────────────────────────────────────────────────────

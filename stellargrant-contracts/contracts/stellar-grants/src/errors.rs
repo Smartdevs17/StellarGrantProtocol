@@ -108,4 +108,16 @@ pub enum ContractError {
     CrowdfundDeadlineNotReached = 86,
     CrowdfundAlreadyFinalized = 87,
     AlreadyPledged = 88,
+    // Public review (#590)
+    CommentTooLong = 89,
+    ReviewNotFound = 90,
+    // Milestone DAG (#595)
+    DagAlreadyAttached = 91,
+    DagCycleDetected = 92,
+    DependencyNotSatisfied = 93,
+    DagNotAttached = 94,
+    // Milestone NFT (#570)
+    NftNotFound = 95,
+    NftNotTransferable = 96,
+    NotNftOwner = 97,
 }
