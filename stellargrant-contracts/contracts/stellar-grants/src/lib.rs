@@ -502,6 +502,17 @@ impl StellarGrantsContract {
                 if hooks::has_hooks(&env, HookEvent::MilestoneApproved) {
                     hooks::trigger(&env, HookEvent::MilestoneApproved, Bytes::new(&env));
                 }
+                // Mint soulbound NFT certificate for the contributor (#570)
+                let meta = NftMetadata {
+                    name: milestone.description.clone(),
+                    description: milestone.description.clone(),
+                    grant_title: grant.title.clone(),
+                    image_uri: String::from_str(&env, ""),
+                    attributes: soroban_sdk::Vec::new(&env),
+                };
+                let _ = milestone_nft::mint(&env, grant_id, milestone_idx, &grant.owner, meta);
+                // Track this grant in the contributor's portfolio index (#565)
+                Storage::push_contributor_grant_id(&env, &grant.owner, grant_id);
             } else {
                 audit::log(
                     &env,
@@ -2332,6 +2343,64 @@ impl StellarGrantsContract {
     /// List all backer addresses for a campaign.
     pub fn crowdfund_list_backers(env: Env, campaign_id: u64) -> Vec<Address> {
         crowdfund::list_backers(&env, campaign_id)
+    }
+
+    // ── Portfolio (#565) ──────────────────────────────────────────────────────
+
+    pub fn get_portfolio(env: Env, contributor: Address) -> Result<ContributorPortfolio, ContractError> {
+        portfolio::get_portfolio(&env, &contributor)
+    }
+
+    pub fn portfolio_grant_summary(
+        env: Env,
+        contributor: Address,
+        grant_id: u64,
+    ) -> Result<GrantSummary, ContractError> {
+        portfolio::get_grant_summary(&env, &contributor, grant_id)
+    }
+
+    pub fn portfolio_earnings_by_token(env: Env, contributor: Address) -> Vec<(Address, i128)> {
+        portfolio::earnings_by_token(&env, &contributor)
+    }
+
+    pub fn portfolio_hash(env: Env, contributor: Address) -> Bytes {
+        portfolio::portfolio_hash(&env, &contributor)
+    }
+
+    // ── Milestone NFT (#570) ──────────────────────────────────────────────────
+
+    pub fn nft_get(env: Env, grant_id: u64, milestone_idx: u32) -> Option<MilestoneNft> {
+        milestone_nft::get_nft(&env, grant_id, milestone_idx)
+    }
+
+    pub fn nft_get_by_token_id(env: Env, token_id: u32) -> Option<MilestoneNft> {
+        milestone_nft::get_by_token_id(&env, token_id)
+    }
+
+    pub fn nft_get_by_owner(env: Env, owner: Address) -> Vec<u32> {
+        milestone_nft::get_by_owner(&env, &owner)
+    }
+
+    pub fn nft_verify(env: Env, token_id: u32) -> bool {
+        milestone_nft::verify_nft(&env, token_id)
+    }
+
+    pub fn nft_set_transferable(
+        env: Env,
+        admin: Address,
+        token_id: u32,
+        transferable: bool,
+    ) -> Result<(), ContractError> {
+        milestone_nft::set_transferable(&env, &admin, token_id, transferable)
+    }
+
+    pub fn nft_transfer(
+        env: Env,
+        from: Address,
+        to: Address,
+        token_id: u32,
+    ) -> Result<(), ContractError> {
+        milestone_nft::transfer(&env, &from, &to, token_id)
     }
 
     // ── Open Review (#590) ────────────────────────────────────────────────────
